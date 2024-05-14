@@ -1,0 +1,10 @@
+torch==1.13
+git+https://github.com/OML-Team/open-metric-learning.git@cf36e83d19e2ffd75c26fb5291b6ef07f664515b
+pandas
+numpy
+wandb
+timm
+tqdm
+gdown
+hydra-core
+ripserplusplus @ git+https://github.com/ArGintum/RipserZeros.git@bac8a96f56e9e3ed46202323accbeeee11c4b54c

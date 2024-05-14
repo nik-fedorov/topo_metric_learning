@@ -1,0 +1,66 @@
+global_seed: 42
+
+
+train_transforms:
+  _target_: oml.transforms.images.torchvision.get_augs_hypvit
+  _args_:
+    - 224
+  mean: [ 0.5, 0.5, 0.5 ]
+  std: [ 0.5, 0.5, 0.5 ]
+
+valid_transforms:
+  _target_: oml.transforms.images.torchvision.get_normalisation_resize_hypvit
+  _args_:
+    - 256
+  mean: [ 0.5, 0.5, 0.5 ]
+  std: [ 0.5, 0.5, 0.5 ]
+
+dataset:
+  class_name: 'StanfordOnlineProducts'
+
+dataloader:
+  n_labels: 64
+  n_instances: 4
+  valid_batch_size: 256
+  num_workers: 8
+
+model:
+  _target_: models.ViTS
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1e-5
+  weight_decay: 0.01
+
+criterion:
+  _target_: losses.CompositeLoss
+  losses:
+    - module:
+        _target_: losses.TripletLossWithMiner
+        _args_:
+          - _target_: losses.TripletLoss
+            margin: 0.15
+          - _target_: oml.miners.inbatch_hard_tri.HardTripletsMiner
+#          - _target_: losses.triplet_loss.MyNHardTripletsMiner
+#            n_positive: [2, 2]
+#            n_negative: [1, 1]
+      weight: 1.0
+    - module:
+        _target_: losses.MyRTDLoss
+        dim: 1
+        card: 50
+        engine: ripser
+        is_sym: true
+        lp: 1.0
+      weight: 0.0
+    - module:
+        _target_: losses.PersistentHomologyLoss
+      weight: 0.0
+
+trainer:
+  valid_period: 5
+  n_epochs: 10000
+  clip_grad_norm: 3.0
+
+wandb_init_data:
+  project: topo_metric_learning
