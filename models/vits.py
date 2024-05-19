@@ -19,7 +19,7 @@ class NormLayer(nn.Module):
 
 class ViTS(nn.Module):
     def __init__(self, num_freezed_blocks=0, freeze_patch_embeds=True,
-                 normalize_output_embeddings=False):
+                 normalize_output_embeddings=False, layer_output=None):
         super().__init__()
 
         self.num_freezed_blocks = num_freezed_blocks
@@ -45,5 +45,18 @@ class ViTS(nn.Module):
         else:
             self.head = nn.Identity()
 
+        # register hooks to get layer output
+        self.layer_output = dict()
+        if layer_output is not None:
+            def get_layer_output(module, input, output):
+                self.layer_output['output'] = output
+            eval('self.body.' + layer_output).register_forward_hook(get_layer_output)
+        else:
+            self.layer_output['output'] = None
+
     def forward(self, x):
-        return self.head(self.body(x))
+        output_embeds = self.head(self.body(x))
+        if self.training:
+            return output_embeds, self.layer_output['output']
+        else:
+            return output_embeds

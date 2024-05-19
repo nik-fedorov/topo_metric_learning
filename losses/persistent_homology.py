@@ -91,7 +91,7 @@ class PersistentHomologyCalculation:
 
 
 def compute_distance_matrix(x, p=2.0):
-    x_flat = x.view(x.size(0), -1)
+    x_flat = x.reshape(x.size(0), -1)
     distances = torch.cdist(x_flat, x_flat, p=p)
     return distances
 
@@ -232,11 +232,12 @@ class TopologicalSignatureDistance(nn.Module):
         return distance, distance_components
 
 
-def compute_topological_loss(input_space, feature_space, use_grad=False):
+def compute_topological_loss(input_space, feature_space, use_grad=False,
+                             norm_constant=1.0, match_edges=None):
     input_distances = compute_distance_matrix(input_space)
 
     dimensions = input_space.size()
-    topo_sig = TopologicalSignatureDistance()
+    topo_sig = TopologicalSignatureDistance(match_edges=match_edges)
     latent_norm = torch.nn.Parameter(data=torch.ones(1), requires_grad=True).cuda()
     latent_norm_1 = torch.nn.Parameter(data=torch.ones(1), requires_grad=True).cuda()
     if len(dimensions) == 4:
@@ -250,6 +251,7 @@ def compute_topological_loss(input_space, feature_space, use_grad=False):
 
     feature_distances = compute_distance_matrix(feature_space)
     feature_distances = feature_distances / latent_norm
+    feature_distances = feature_distances / norm_constant
 
     topo_error, topo_error_components = topo_sig(
         input_distances, feature_distances)
@@ -261,11 +263,35 @@ def compute_topological_loss(input_space, feature_space, use_grad=False):
 
 
 class PersistentHomologyLoss(nn.Module):
-    def __init__(self):
+    def __init__(
+            self,
+            add_trainable_norm_factor_for_embeddings_distmat=False,
+            norm_factor_init_value=1.0,
+            enable_since_epoch=0,
+            match_edges=None
+    ):
         super().__init__()
+        if add_trainable_norm_factor_for_embeddings_distmat:
+            self.norm_constant = nn.Parameter(data=torch.tensor(norm_factor_init_value), requires_grad=True)
+        else:
+            self.norm_constant = norm_factor_init_value
+        self.enable_since_epoch = enable_since_epoch
+        self.match_edges = match_edges
 
-    def forward(self, input_tensors, embeddings, *args, **kwargs):
-        return compute_topological_loss(input_tensors, embeddings, use_grad=True)
+    def forward(self, input_tensors, layer_output, embeddings, epoch, *args, **kwargs):
+        if epoch < self.enable_since_epoch:
+            return 0.0
+        else:
+            return compute_topological_loss(
+                input_tensors if layer_output is None else layer_output,
+                embeddings, norm_constant=self.norm_constant,
+                match_edges=self.match_edges
+            )
 
     def summary(self):
-        return {}
+        data = dict()
+        if isinstance(self.norm_constant, nn.Parameter):
+            data['topoAE_loss_norm_constant'] = self.norm_constant.data.item()
+        else:
+            data['topoAE_loss_norm_constant'] = self.norm_constant
+        return data

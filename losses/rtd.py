@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import ripserplusplus as rpp_py
 
-from line_profiler import profile
-
 
 # from gph.python import ripser_parallel
 
@@ -39,7 +37,6 @@ def get_indicies(DX, rc, dim, card):
     return list(np.array(indices, dtype=np.compat.long))
 
 
-@profile
 def Rips(DX, dim, card, n_threads, engine):
     # Parameters: DX (distance matrix),
     #             dim (homological dimension),
@@ -73,7 +70,6 @@ class RTD_differentiable(nn.Module):
         self.n_threads = n_threads
         self.engine = engine
 
-    @profile
     def forward(self, Dr1, Dr2, immovable=None):
         # inputs are distance matricies
         d, c = self.dim, self.card
@@ -155,7 +151,6 @@ class RTDLoss(nn.Module):
         self.p = lp
         self.rtd = RTD_differentiable(dim, card, mode, n_threads, engine)
 
-    @profile
     def forward(self, x_dist, z_dist):
         # x_dist is the precomputed distance matrix
         # z is the batch of latent representations
@@ -213,10 +208,14 @@ from losses.persistent_homology import compute_distance_matrix
 
 class MyRTDLoss(nn.Module):
     def __init__(self, dim=1, card=50, n_threads=25, engine='giotto', mode='minimum', is_sym=True, lp=1.0,
-                 normalization_data=None, enable_since_epoch=0):
+                 normalization_data=None, enable_since_epoch=0,
+                 trainable_norm_factor=True, trainable_norm_factor_init_value=1.0):
         super().__init__()
         self.rtd_loss = RTDLoss(dim, card, n_threads, engine, mode, is_sym, lp)
-        self.norm_constant = nn.Parameter(data=torch.ones(1), requires_grad=True)
+        if trainable_norm_factor:
+            self.norm_constant = nn.Parameter(data=torch.tensor(trainable_norm_factor_init_value), requires_grad=True)
+        else:
+            self.norm_constant = trainable_norm_factor_init_value
         self.normalization_data = normalization_data
         self.enable_since_epoch = enable_since_epoch
 
@@ -229,20 +228,26 @@ class MyRTDLoss(nn.Module):
         batch_size, ch, h, w = input_tensors.shape
         x_dist = x_dist / np.sqrt(ch * h * w)  # normalization as in RTD paper
 
+        z_dist = compute_distance_matrix(embeddings)
+        z_dist = z_dist / np.sqrt(embeddings.shape[1])  # RTD mistakenly normalize here by z_dist.shape[1]
+
         if self.normalization_data is not None:
             norm_mode = self.normalization_data['mode']
             if norm_mode == 'constant':
                 x_dist = x_dist * self.normalization_data['constant']
+            elif norm_mode == 'by_mean_value':
+                x_dist = x_dist * torch.mean(z_dist) / torch.mean(x_dist)
             else:
                 raise RuntimeError(f'Unknown normalization mode: {norm_mode}')
 
-        z_dist = compute_distance_matrix(embeddings)
-        z_dist = z_dist / np.sqrt(embeddings.shape[1])  # RTD mistakenly normalize here by z_dist.shape[1]
         z_dist = self.norm_constant * z_dist
 
         return self.rtd_loss(x_dist, z_dist)[-1]
 
     def summary(self):
         data = dict()
-        data['rtd_loss_norm_constant'] = self.norm_constant.item()
+        if isinstance(self.norm_constant, nn.Parameter):
+            data['rtd_loss_norm_constant'] = self.norm_constant.data.item()
+        else:
+            data['rtd_loss_norm_constant'] = self.norm_constant
         return data

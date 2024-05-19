@@ -16,7 +16,7 @@ valid_transforms:
   std: [ 0.5, 0.5, 0.5 ]
 
 dataset:
-  class_name: 'StanfordOnlineProducts'
+  class_name: 'InShop'
 
 dataloader:
   n_labels: 64
@@ -33,7 +33,8 @@ optimizer:
   weight_decay: 0.01
 
 optimizer_criterion_hyperparams:
-  lr: 1e-5
+  lr: 2e-3
+  weight_decay: 0.0
 
 criterion:
   _target_: losses.CompositeLoss
@@ -55,10 +56,15 @@ criterion:
         engine: ripser
         is_sym: true
         lp: 1.0
+        normalization_data:
+          mode: constant
+          constant: 3.5
       weight: 0.0
     - module:
         _target_: losses.PersistentHomologyLoss
-      weight: 0.0
+        add_trainable_norm_factor_for_embeddings_distmat: true
+        norm_factor_init_value: 8.0
+      weight: 0.1
 
 trainer:
   valid_period: 5

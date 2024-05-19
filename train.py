@@ -89,7 +89,11 @@ def main(cfg: DictConfig):
     model.add_module('criterion', criterion)  # some criterions have trainable params, we want to save them in ckpts
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
-    optimizer = hydra.utils.instantiate(cfg.optimizer, model.parameters())
+    param_groups = [
+        {'params': model.criterion.parameters(), **cfg.optimizer_criterion_hyperparams},
+        {'params': [p for n, p in model.named_parameters() if 'criterion' not in n]}
+    ]
+    optimizer = hydra.utils.instantiate(cfg.optimizer, param_groups)
     scheduler = None
 
     wandb_init_data = OmegaConf.to_container(cfg.wandb_init_data)
@@ -140,9 +144,10 @@ def main(cfg: DictConfig):
             model.train()
             for batch in tqdm(train_loader):
                 optimizer.zero_grad()
-                embeddings = model(batch['input_tensors'].to(device))
+                embeddings, layer_output = model(batch['input_tensors'].to(device))
                 loss = criterion(
                     input_tensors=batch['input_tensors'].to(device),
+                    layer_output=layer_output,
                     embeddings=embeddings,
                     labels=batch['labels'].to(device),
                     epoch=epoch,
@@ -171,6 +176,12 @@ def main(cfg: DictConfig):
                         save_model(best_ckpt_path, epoch + 1, best_cmc1, model, optimizer, scheduler)
                         wandb.save(best_ckpt_path)
                         print(f'\nNew best CMC@1 {best_cmc1} at {epoch + 1} epoch\n')
+
+            if hasattr(cfg.trainer, 'ckpt_epochs') and epoch + 1 in cfg.trainer.ckpt_epochs:
+                ckpt_path = str(ckpt_dir / f'epoch{epoch + 1}.pt')
+                save_model(ckpt_path, epoch + 1, best_cmc1, model, optimizer, scheduler)
+                wandb.save(ckpt_path)
+                print(f'\nCheckpoint saved at {epoch + 1} epoch\n')
 
 
 if __name__ == '__main__':

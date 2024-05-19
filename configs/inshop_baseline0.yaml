@@ -32,6 +32,9 @@ optimizer:
   lr: 1e-5
   weight_decay: 0.01
 
+optimizer_criterion_hyperparams:
+  lr: 1e-5
+
 criterion:
   _target_: losses.CompositeLoss
   losses:
